@@ -16,6 +16,12 @@ import tempfile
 from pathlib import Path
 
 MERMAID_FENCE_RE = re.compile(r"```mermaid[ \t]*\n(.*?)```", re.DOTALL)
+VERSION_RE = re.compile(r"(\d+)\.(\d+)")
+
+# Oldest versions known to support the behavior docbus relies on: pandoc's
+# gfm reader (-f gfm) and mmdc's -b/--backgroundColor flag.
+MIN_PANDOC_VERSION = (2, 0)
+MIN_MMDC_VERSION = (10, 0)
 
 
 class ConversionError(RuntimeError):
@@ -29,6 +35,22 @@ class ConversionError(RuntimeError):
 def require_tool(name: str, hint: str) -> None:
     if shutil.which(name) is None:
         sys.exit(f"error: '{name}' not found on PATH.\n  {hint}")
+
+
+def require_tool_version(name: str, min_version: tuple[int, int], hint: str) -> None:
+    """Fail fast on a too-old install instead of risking a subtly broken docx."""
+    result = subprocess.run([name, "--version"], capture_output=True, text=True)
+    match = VERSION_RE.search(result.stdout or result.stderr)
+    if match is None:
+        print(f"warning: could not determine '{name}' version; continuing anyway", file=sys.stderr)
+        return
+    found = (int(match.group(1)), int(match.group(2)))
+    if found < min_version:
+        found_str = ".".join(str(p) for p in found)
+        min_str = ".".join(str(p) for p in min_version)
+        sys.exit(
+            f"error: '{name}' {found_str} is too old (docbus requires >= {min_str}).\n  {hint}"
+        )
 
 
 def render_mermaid_to_png_data_uris(md_text: str) -> tuple[str, int]:
@@ -69,6 +91,8 @@ def render_mermaid_to_png_data_uris(md_text: str) -> tuple[str, int]:
 def convert(input_path: Path, output_path: Path) -> None:
     require_tool("mmdc", "Install with: npm install -g @mermaid-js/mermaid-cli")
     require_tool("pandoc", "Install from https://pandoc.org/installing.html")
+    require_tool_version("mmdc", MIN_MMDC_VERSION, "Upgrade with: npm install -g @mermaid-js/mermaid-cli")
+    require_tool_version("pandoc", MIN_PANDOC_VERSION, "Upgrade at https://pandoc.org/installing.html")
 
     md_text = input_path.read_text(encoding="utf-8")
     print(f"Scanning {input_path.name} for mermaid diagrams...")

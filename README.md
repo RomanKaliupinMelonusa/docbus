@@ -30,11 +30,12 @@ environment.
 `docbus` shells out to two tools that must already be installed on the
 machine running it — the installer does not vendor or install them:
 
-- **pandoc** — <https://pandoc.org/installing.html>
-- **mmdc** (mermaid-cli) — `npm install -g @mermaid-js/mermaid-cli`
+- **pandoc** (>= 2.0) — <https://pandoc.org/installing.html>
+- **mmdc** (mermaid-cli, >= 10.0) — `npm install -g @mermaid-js/mermaid-cli`
 
-If either is missing, `docbus` fails immediately with a one-line message
-telling you which one and how to install it, instead of a stack trace.
+If either is missing, or is older than the minimum version above, `docbus`
+fails immediately with a one-line message telling you which one and how to
+install/upgrade it, instead of a stack trace or a subtly broken `.docx`.
 
 ## Usage
 
