@@ -59,12 +59,28 @@ NEUTRAL_THEME_NOTE_VARIABLES = {
 # on every run referencing it (so importers like Confluence's, which read
 # direct run formatting but don't reliably resolve character-style chains,
 # don't silently fall back to bold).
+#
+# Fenced code blocks hit the exact same gap: pandoc's "SourceCode" paragraph
+# style has no shading of its own, and its syntax-highlighting token styles
+# (KeywordTok, CommentTok, ...) only declare color/bold/italic *deltas*,
+# relying on w:basedOn="VerbatimChar" for the actual font/size/shading --
+# Word/LibreOffice/Google Docs resolve that chain fine, but Confluence drops
+# it entirely (plain, unstyled text). So those token styles' fully-resolved
+# properties get flattened onto every run using them too, and the SourceCode
+# paragraphs get their background shading applied directly.
 INLINE_CODE_SHADING_FILL = "EDEDED"
 VERBATIM_STYLE_RE = re.compile(
     r'(<w:style\b[^>]*w:styleId="VerbatimChar"[^>]*>.*?<w:rPr>)(.*?)(</w:rPr>\s*</w:style>)',
     re.DOTALL,
 )
 VERBATIM_RUN_RE = re.compile(r'<w:rStyle w:val="VerbatimChar" />')
+STYLE_BLOCK_RE = re.compile(r'<w:style\b[^>]*>.*?</w:style>', re.DOTALL)
+STYLE_ID_RE = re.compile(r'w:styleId="(\w+)"')
+STYLE_RPR_RE = re.compile(r'<w:rPr>(.*?)</w:rPr>|<w:rPr\s*/>', re.DOTALL)
+TOK_BOLD_RE = re.compile(r'<w:b(?:\s+w:val="([^"]*)")?\s*/>')
+TOK_ITALIC_RE = re.compile(r'<w:i(?:\s+w:val="([^"]*)")?\s*/>')
+TOK_COLOR_RE = re.compile(r'<w:color w:val="([^"]*)"\s*/>')
+SOURCE_CODE_PSTYLE_RE = re.compile(r'<w:pStyle w:val="SourceCode" />')
 
 
 class ConversionError(RuntimeError):
@@ -75,8 +91,45 @@ class ConversionError(RuntimeError):
     """
 
 
+def _token_style_overrides(styles_xml: str) -> dict[str, str]:
+    """Map each pandoc syntax-highlighting token style id (KeywordTok, ...)
+    that's basedOn VerbatimChar to its own declared rPr overrides (if any)."""
+    overrides = {}
+    for block in STYLE_BLOCK_RE.findall(styles_xml):
+        if 'w:type="character"' not in block or '<w:basedOn w:val="VerbatimChar" />' not in block:
+            continue
+        style_id_match = STYLE_ID_RE.search(block)
+        if not style_id_match:
+            continue
+        rpr_match = STYLE_RPR_RE.search(block)
+        overrides[style_id_match.group(1)] = (rpr_match.group(1) or "") if rpr_match else ""
+    return overrides
+
+
+def _token_run_extra(rpr_overrides: str) -> str:
+    """Flatten a token style's declared overrides plus VerbatimChar's own
+    (font/size/shading) into one fully-resolved rPr, schema-ordered."""
+    bold_match = TOK_BOLD_RE.search(rpr_overrides)
+    italic_match = TOK_ITALIC_RE.search(rpr_overrides)
+    color_match = TOK_COLOR_RE.search(rpr_overrides)
+    bold_val = (bold_match.group(1) or "1") if bold_match else "0"
+    italic_val = (italic_match.group(1) or "1") if italic_match else "0"
+    color_extra = f'<w:color w:val="{color_match.group(1)}" />' if color_match else ""
+    return (
+        '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" />'
+        f'<w:b w:val="{bold_val}" /><w:bCs w:val="{bold_val}" />'
+        f'<w:i w:val="{italic_val}" /><w:iCs w:val="{italic_val}" />'
+        f'{color_extra}'
+        '<w:sz w:val="22" />'
+        f'<w:shd w:val="clear" w:color="auto" w:fill="{INLINE_CODE_SHADING_FILL}" />'
+    )
+
+
 def _shade_inline_code(docx_path: Path) -> None:
-    """Patch pandoc's VerbatimChar style, and every run using it, in-place."""
+    """Patch pandoc's VerbatimChar/SourceCode styles, and every run/paragraph
+    using them, in-place, so inline code and fenced code blocks keep their
+    font/color/shading even in importers (e.g. Confluence's) that don't
+    resolve docx style inheritance (w:basedOn) chains."""
     with zipfile.ZipFile(docx_path) as zin:
         infos = zin.infolist()
         contents = {info.filename: zin.read(info.filename) for info in infos}
@@ -87,6 +140,8 @@ def _shade_inline_code(docx_path: Path) -> None:
     if f'w:fill="{INLINE_CODE_SHADING_FILL}"' in styles_xml:
         return
 
+    token_overrides = _token_style_overrides(styles_xml)
+
     style_extra = (
         f'<w:shd w:val="clear" w:color="auto" w:fill="{INLINE_CODE_SHADING_FILL}" />'
         '<w:b w:val="0" /><w:bCs w:val="0" />'
@@ -96,20 +151,37 @@ def _shade_inline_code(docx_path: Path) -> None:
     )
     if n == 0:
         return
+    # Shade the SourceCode style itself too (harmless if some importer does
+    # resolve style inheritance; the per-paragraph patch below covers those
+    # that don't).
+    para_shd = f'<w:shd w:val="clear" w:color="auto" w:fill="{INLINE_CODE_SHADING_FILL}" />'
+    patched_styles = SOURCE_CODE_PSTYLE_RE.sub(r'\g<0>' + para_shd, patched_styles)
     contents["word/styles.xml"] = patched_styles.encode("utf-8")
 
-    # Schema order after w:rStyle: rFonts, b, bCs, ..., sz, ..., shd.
+    # Schema order after w:rStyle: rFonts, b, bCs, i, iCs, color, sz, shd.
     run_extra = (
         '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" />'
         '<w:b w:val="0" /><w:bCs w:val="0" />'
         '<w:sz w:val="22" />'
         f'<w:shd w:val="clear" w:color="auto" w:fill="{INLINE_CODE_SHADING_FILL}" />'
     )
+    token_run_extras = {style_id: _token_run_extra(overrides) for style_id, overrides in token_overrides.items()}
+
     for name, data in contents.items():
-        if name.startswith("word/") and name.endswith(".xml") and b"VerbatimChar" in data:
-            text = data.decode("utf-8")
-            patched, _ = VERBATIM_RUN_RE.subn('<w:rStyle w:val="VerbatimChar" />' + run_extra, text)
-            contents[name] = patched.encode("utf-8")
+        if not (name.startswith("word/") and name.endswith(".xml")):
+            continue
+        if b"VerbatimChar" not in data and b"SourceCode" not in data:
+            continue
+        text = data.decode("utf-8")
+        patched, _ = VERBATIM_RUN_RE.subn('<w:rStyle w:val="VerbatimChar" />' + run_extra, text)
+        for style_id, extra in token_run_extras.items():
+            patched = re.sub(
+                rf'<w:rStyle w:val="{style_id}" />',
+                f'<w:rStyle w:val="{style_id}" />' + extra,
+                patched,
+            )
+        patched = SOURCE_CODE_PSTYLE_RE.sub(r'\g<0>' + para_shd, patched)
+        contents[name] = patched.encode("utf-8")
 
     tmp_path = docx_path.with_suffix(".tmp.docx")
     with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
