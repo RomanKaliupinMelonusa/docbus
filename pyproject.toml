@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "docbus"
+version = "0.1.0"
+description = "Convert Markdown (with embedded Mermaid diagrams) to .docx via pandoc and mermaid-cli"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "RomanKaliupinMelonusa" }]
+keywords = ["markdown", "docx", "pandoc", "mermaid", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Markup",
+]
+
+[project.urls]
+Homepage = "https://github.com/RomanKaliupinMelonusa/docbus"
+Issues = "https://github.com/RomanKaliupinMelonusa/docbus/issues"
+
+[project.scripts]
+docbus = "docbus.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/docbus"]
