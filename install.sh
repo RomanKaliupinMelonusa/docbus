@@ -85,12 +85,25 @@ main() {
     if need_cmd docbus; then
         success "Verified: $(docbus --version 2>/dev/null || echo docbus) responds correctly"
     else
-        warn "Could not find 'docbus' on PATH in this shell (a fresh shell may be needed)."
+        bin_dir=$(uv tool dir --bin 2>/dev/null || printf '%s' "$HOME/.local/bin")
+        warn "'docbus' was installed but isn't on PATH in this shell yet."
+        printf '\n    Open a new terminal, or run this in the current one:\n'
+        printf '      export PATH="%s:$PATH"\n\n' "$bin_dir"
     fi
 
-    printf '\n  docbus also needs pandoc and mmdc (mermaid-cli) on PATH:\n'
-    printf '    pandoc: https://pandoc.org/installing.html\n'
-    printf '    mmdc:   npm install -g @mermaid-js/mermaid-cli\n\n'
+    # --- Runtime dependency check (report what's actually missing, not a blanket reminder) ---
+    missing=""
+    need_cmd pandoc || missing="${missing}pandoc "
+    need_cmd mmdc || missing="${missing}mmdc "
+    if [ -z "$missing" ]; then
+        success "pandoc and mmdc (mermaid-cli) both found on PATH"
+    else
+        printf '\n  docbus also needs the following on PATH (not found): %s\n' "$missing"
+        case "$missing" in *pandoc*) printf '    pandoc: https://pandoc.org/installing.html\n' ;; esac
+        case "$missing" in *mmdc*) printf '    mmdc:   npm install -g @mermaid-js/mermaid-cli\n' ;; esac
+        printf '\n'
+    fi
+
     printf '  Run \033[1mdocbus --help\033[0m to get started.\n\n'
 }
 

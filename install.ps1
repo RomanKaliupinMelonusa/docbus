@@ -69,13 +69,27 @@ $docbusCmd = Get-Command docbus -ErrorAction SilentlyContinue
 if ($docbusCmd) {
     Write-Ok "Verified: docbus responds correctly"
 } else {
-    Write-Warning2 "Could not find 'docbus' on PATH in this shell (a fresh shell may be needed)."
+    $binDir = & uv tool dir --bin 2>$null
+    Write-Warning2 "'docbus' was installed but isn't on PATH in this shell yet."
+    Write-Host ""
+    Write-Host "    Open a new terminal, or run this in the current one:"
+    Write-Host "      `$env:Path = `"$binDir;`$env:Path`""
+    Write-Host ""
 }
 
-Write-Host ""
-Write-Host "  docbus also needs pandoc and mmdc (mermaid-cli) on PATH:"
-Write-Host "    pandoc: https://pandoc.org/installing.html"
-Write-Host "    mmdc:   npm install -g @mermaid-js/mermaid-cli"
-Write-Host ""
+# --- Runtime dependency check (report what's actually missing, not a blanket reminder) ---
+$missing = @()
+if (-not (Get-Command pandoc -ErrorAction SilentlyContinue)) { $missing += 'pandoc' }
+if (-not (Get-Command mmdc -ErrorAction SilentlyContinue)) { $missing += 'mmdc' }
+if ($missing.Count -eq 0) {
+    Write-Ok "pandoc and mmdc (mermaid-cli) both found on PATH"
+} else {
+    Write-Host ""
+    Write-Host "  docbus also needs the following on PATH (not found): $($missing -join ' ')"
+    if ($missing -contains 'pandoc') { Write-Host "    pandoc: https://pandoc.org/installing.html" }
+    if ($missing -contains 'mmdc')   { Write-Host "    mmdc:   npm install -g @mermaid-js/mermaid-cli" }
+    Write-Host ""
+}
+
 Write-Host "  Run 'docbus --help' to get started."
 Write-Host ""
