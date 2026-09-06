@@ -5,24 +5,74 @@ Subcommands from day one (`docbus convert ...`) so future verbs like
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from . import __version__
 from .convert import ConversionError, convert
 
+_BOLD = "\033[1m"
+_CYAN = "\033[36m"
+_RED = "\033[31m"
+_RESET = "\033[0m"
+
+
+def _use_color() -> bool:
+    # NO_COLOR (https://no-color.org) always wins; otherwise only color a real terminal.
+    if os.environ.get("NO_COLOR"):
+        return False
+    return sys.stdout.isatty()
+
+
+class _HelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Bolds section headings and option/command names on a real terminal."""
+
+    def __init__(self, prog: str) -> None:
+        super().__init__(prog, max_help_position=30)
+
+    def start_section(self, heading: "str | None") -> None:
+        if _use_color() and heading:
+            heading = f"{_BOLD}{_CYAN}{heading}{_RESET}"
+        super().start_section(heading)
+
+    def _format_action_invocation(self, action: argparse.Action) -> str:
+        text = super()._format_action_invocation(action)
+        if _use_color() and text:
+            return f"{_BOLD}{text}{_RESET}"
+        return text
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        self.print_usage(sys.stderr)
+        label = f"{_BOLD}{_RED}error:{_RESET}" if _use_color() else "error:"
+        self.exit(2, f"{self.prog}: {label} {message}\n")
+
+
+def _epilog() -> str:
+    heading = f"{_BOLD}{_CYAN}examples:{_RESET}" if _use_color() else "examples:"
+    return (
+        f"{heading}\n"
+        "  docbus convert report.md\n"
+        "  docbus convert report.md -o report_final.docx\n"
+    )
+
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _ArgumentParser(
         prog="docbus",
         description="Convert Markdown (with embedded Mermaid diagrams) to .docx.",
+        epilog=_epilog(),
+        formatter_class=_HelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"docbus {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     convert_parser = subparsers.add_parser(
-        "convert", help="Convert a single .md file to .docx"
+        "convert", help="Convert a single .md file to .docx",
+        formatter_class=_HelpFormatter,
     )
     convert_parser.add_argument("input", type=Path, help="Path to the source .md file")
     convert_parser.add_argument(
