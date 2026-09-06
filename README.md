@@ -62,24 +62,10 @@ This:
 `docbus` is subcommand-based (`docbus convert ...`) from day one so future
 verbs (e.g. `docbus push`) can be added without breaking existing callers.
 
-### `docbus svg` — pandoc-free md -> md
-
-```sh
-docbus svg input.md
-docbus svg input.md -o output.md
-docbus svg input.md -t default
-```
-
-No docx, no pandoc. This replaces every ` ```mermaid ` fenced block with its
-rendered `<svg>...</svg>` markup inlined directly into a new `.md` file
-(GFM allows raw HTML blocks, so it renders wherever the markdown is viewed
-as HTML). Default output is `<input-stem>.svg.md`.
-
 ## Scope
 
-In scope: single-file `.md` -> `.docx` conversion (`convert`), with Mermaid
-diagrams rendered to embedded PNGs/SVGs; single-file `.md` -> `.md` with
-Mermaid diagrams inlined as raw SVG (`svg`).
+In scope: single-file `.md` -> `.docx` conversion, with Mermaid diagrams
+rendered to embedded PNGs or SVGs.
 
 Out of scope (by design, not yet implemented): Confluence or other API
 integrations, HTML output, folder/batch conversion, watch mode, and a

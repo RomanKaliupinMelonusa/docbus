@@ -9,6 +9,7 @@ and gfm (not pandoc's default markdown) are required.
 
 import base64
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -18,10 +19,6 @@ from pathlib import Path
 
 MERMAID_FENCE_RE = re.compile(r"```mermaid[ \t]*\n(.*?)```", re.DOTALL)
 VERSION_RE = re.compile(r"(\d+)\.(\d+)")
-# mmdc's raw svg output starts with an XML prolog/doctype that isn't valid
-# inside a GFM raw-HTML block, so it's stripped before inlining.
-XML_PROLOG_RE = re.compile(r"^\s*<\?xml[^>]*\?>\s*", re.IGNORECASE)
-SVG_DOCTYPE_RE = re.compile(r"^\s*<!DOCTYPE[^>]*>\s*", re.IGNORECASE)
 
 # Oldest versions known to support the behavior docbus relies on: pandoc's
 # gfm reader (-f gfm) and mmdc's -b/--backgroundColor flag.
@@ -40,6 +37,15 @@ DEFAULT_MERMAID_THEME = "neutral"
 MERMAID_FORMATS = ("png", "svg")
 DEFAULT_MERMAID_FORMAT = "png"
 MERMAID_FORMAT_MIME_TYPES = {"png": "image/png", "svg": "image/svg+xml"}
+
+# neutral is otherwise all-grayscale by design (mmdc/mermaid drops the note's
+# yellow highlight entirely under it) -- restore mermaid's own "default" theme
+# note colors so callouts stay visible, matching mermaid.ai's neutral export.
+NEUTRAL_THEME_NOTE_VARIABLES = {
+    "noteBkgColor": "#fff5ad",
+    "noteBorderColor": "#aaaa33",
+    "noteTextColor": "#333333",
+}
 
 
 class ConversionError(RuntimeError):
@@ -71,6 +77,19 @@ def require_tool_version(name: str, min_version: tuple[int, int], hint: str) -> 
         )
 
 
+def _mmdc_theme_args(theme: str, tmp_dir: Path) -> list[str]:
+    """Usually just -t theme; neutral additionally needs a configFile to
+    restore its stripped-out note color (see NEUTRAL_THEME_NOTE_VARIABLES)."""
+    if theme != "neutral":
+        return ["-t", theme]
+    config_path = tmp_dir / "mermaid-config.json"
+    config_path.write_text(
+        json.dumps({"theme": theme, "themeVariables": NEUTRAL_THEME_NOTE_VARIABLES}),
+        encoding="utf-8",
+    )
+    return ["-c", str(config_path)]
+
+
 def render_mermaid_to_data_uris(
     md_text: str, theme: str = DEFAULT_MERMAID_THEME, fmt: str = DEFAULT_MERMAID_FORMAT
 ) -> tuple[str, int]:
@@ -83,6 +102,7 @@ def render_mermaid_to_data_uris(
     mime_type = MERMAID_FORMAT_MIME_TYPES[fmt]
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
+        theme_args = _mmdc_theme_args(theme, tmp_dir)
 
         def _replace(match: "re.Match[str]") -> str:
             nonlocal count
@@ -93,7 +113,7 @@ def render_mermaid_to_data_uris(
 
             mmd_path.write_text(diagram_src, encoding="utf-8")
             result = subprocess.run(
-                ["mmdc", "-i", str(mmd_path), "-o", str(out_path), "-b", "transparent", "-t", theme],
+                ["mmdc", "-i", str(mmd_path), "-o", str(out_path), "-b", "transparent", *theme_args],
                 capture_output=True, text=True,
             )
             if result.returncode != 0:
@@ -142,59 +162,4 @@ def convert(
     finally:
         processed_path.unlink(missing_ok=True)
 
-    print(f"Wrote {output_path}")
-
-
-def render_mermaid_to_inline_svg(md_text: str, theme: str = DEFAULT_MERMAID_THEME) -> tuple[str, int]:
-    """Replace every ```mermaid fence with its raw <svg>...</svg> markup,
-    inlined directly as a GFM raw-HTML block. No pandoc/PNG involved -- the
-    output stays a plain .md file.
-    """
-    count = 0
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_dir = Path(tmp)
-
-        def _replace(match: "re.Match[str]") -> str:
-            nonlocal count
-            diagram_src = match.group(1)
-            digest = hashlib.sha256(diagram_src.encode("utf-8")).hexdigest()[:10]
-            mmd_path = tmp_dir / f"d-{digest}.mmd"
-            svg_path = tmp_dir / f"d-{digest}.svg"
-
-            mmd_path.write_text(diagram_src, encoding="utf-8")
-            result = subprocess.run(
-                # -I/--svgId: without it every diagram gets id="my-svg", which
-                # collides (duplicate IDs, broken CSS scoping) once more than
-                # one is inlined into the same document.
-                ["mmdc", "-i", str(mmd_path), "-o", str(svg_path), "-b", "transparent",
-                 "-t", theme, "-I", f"d-{digest}"],
-                capture_output=True, text=True,
-            )
-            if result.returncode != 0:
-                raise ConversionError(
-                    f"mermaid-cli failed on diagram {digest}:\n{result.stderr.strip()}"
-                )
-
-            svg_markup = svg_path.read_text(encoding="utf-8")
-            svg_markup = XML_PROLOG_RE.sub("", svg_markup)
-            svg_markup = SVG_DOCTYPE_RE.sub("", svg_markup).strip()
-            count += 1
-            print(f"  rendered diagram {digest}")
-            return f"\n{svg_markup}\n"
-
-        new_text = MERMAID_FENCE_RE.sub(_replace, md_text)
-    return new_text, count
-
-
-def embed_svg(input_path: Path, output_path: Path, theme: str = DEFAULT_MERMAID_THEME) -> None:
-    """md -> md: replace every mermaid fence with inline <svg> markup. No pandoc."""
-    require_tool("mmdc", "Install with: npm install -g @mermaid-js/mermaid-cli")
-    require_tool_version("mmdc", MIN_MMDC_VERSION, "Upgrade with: npm install -g @mermaid-js/mermaid-cli")
-
-    md_text = input_path.read_text(encoding="utf-8")
-    print(f"Scanning {input_path.name} for mermaid diagrams...")
-    processed_md, count = render_mermaid_to_inline_svg(md_text, theme=theme)
-    print(f"Rendered {count} diagram(s).")
-
-    output_path.write_text(processed_md, encoding="utf-8")
     print(f"Wrote {output_path}")

@@ -17,7 +17,6 @@ from .convert import (
     MERMAID_THEMES,
     ConversionError,
     convert,
-    embed_svg,
 )
 
 _BOLD = "\033[1m"
@@ -64,16 +63,15 @@ def _epilog() -> str:
         f"{heading}\n"
         "  docbus convert report.md              # writes report.docx\n"
         "  docbus convert report.md -o out.docx  # -o/--output: custom output path\n"
-        "  docbus svg report.md                  # writes report.svg.md, no pandoc\n"
         "\n"
-        "See 'docbus convert --help' / 'docbus svg --help' for the full option lists.\n"
+        "See 'docbus convert --help' for the full list of convert options.\n"
     )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
         prog="docbus",
-        description="Convert Markdown (with embedded Mermaid diagrams) to .docx, or inline the diagrams as SVG into a new .md file.",
+        description="Convert Markdown (with embedded Mermaid diagrams) to .docx.",
         epilog=_epilog(),
         formatter_class=_HelpFormatter,
     )
@@ -104,22 +102,6 @@ def build_parser() -> argparse.ArgumentParser:
              "(or cairosvg/Inkscape) on PATH for pandoc to embed it.",
     )
 
-    svg_parser = subparsers.add_parser(
-        "svg", help="Replace mermaid fences with inline <svg> markup in a new .md file (no pandoc)",
-        formatter_class=_HelpFormatter,
-    )
-    svg_parser.add_argument("input", type=Path, help="Path to the source .md file")
-    svg_parser.add_argument(
-        "-o", "--output", type=Path, default=None,
-        help="Output .md path (default: <input-stem>.svg.md). Order vs. input doesn't matter.",
-    )
-    svg_parser.add_argument(
-        "-t", "--theme", choices=MERMAID_THEMES, default=DEFAULT_MERMAID_THEME,
-        metavar="THEME",
-        help=f"Mermaid theme passed to mmdc (default: {DEFAULT_MERMAID_THEME}). "
-             f"Choices: {', '.join(MERMAID_THEMES)}.",
-    )
-
     return parser
 
 
@@ -135,14 +117,6 @@ def main(argv: "list[str] | None" = None) -> None:
         output_path = args.output or args.input.with_suffix(".docx")
         try:
             convert(args.input, output_path, theme=args.theme, fmt=args.format)
-        except ConversionError as e:
-            sys.exit(f"error: {e}")
-    elif args.command == "svg":
-        if not args.input.exists():
-            sys.exit(f"Input file not found: {args.input}")
-        output_path = args.output or args.input.with_name(f"{args.input.stem}.svg{args.input.suffix}")
-        try:
-            embed_svg(args.input, output_path, theme=args.theme)
         except ConversionError as e:
             sys.exit(f"error: {e}")
 
