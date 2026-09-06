@@ -42,23 +42,44 @@ install/upgrade it, instead of a stack trace or a subtly broken `.docx`.
 ```sh
 docbus convert input.md
 docbus convert input.md -o output.docx
+docbus convert input.md -t default
+docbus convert input.md -f svg
 ```
 
 This:
 
 1. Reads `input.md`.
-2. Renders every ` ```mermaid ` fenced block to a PNG via `mmdc` and embeds
-   it as a base64 image.
+2. Renders every ` ```mermaid ` fenced block via `mmdc` and embeds it as a
+   base64 data-URI image, using the `-t/--theme` mermaid theme (default:
+   `neutral`, to match mermaid.ai's export look; mmdc's own default is
+   `default`) and the `-f/--format` image format (default: `png`).
+   Choices: `default`, `neutral`, `dark`, `forest`, `base` for `-t`; `png`,
+   `svg` for `-f`. `svg` needs `rsvg-convert` (or cairosvg/Inkscape) on
+   PATH for pandoc to embed it — see "Why PNG, not SVG?" below.
 3. Runs `pandoc -f gfm` on the result to produce the `.docx`.
 4. Cleans up all temp files. The only new file left on disk is the `.docx`.
 
 `docbus` is subcommand-based (`docbus convert ...`) from day one so future
 verbs (e.g. `docbus push`) can be added without breaking existing callers.
 
+### `docbus svg` — pandoc-free md -> md
+
+```sh
+docbus svg input.md
+docbus svg input.md -o output.md
+docbus svg input.md -t default
+```
+
+No docx, no pandoc. This replaces every ` ```mermaid ` fenced block with its
+rendered `<svg>...</svg>` markup inlined directly into a new `.md` file
+(GFM allows raw HTML blocks, so it renders wherever the markdown is viewed
+as HTML). Default output is `<input-stem>.svg.md`.
+
 ## Scope
 
-In scope: single-file `.md` -> `.docx` conversion, with Mermaid diagrams
-rendered to embedded PNGs.
+In scope: single-file `.md` -> `.docx` conversion (`convert`), with Mermaid
+diagrams rendered to embedded PNGs/SVGs; single-file `.md` -> `.md` with
+Mermaid diagrams inlined as raw SVG (`svg`).
 
 Out of scope (by design, not yet implemented): Confluence or other API
 integrations, HTML output, folder/batch conversion, watch mode, and a
@@ -66,10 +87,12 @@ persistent render cache.
 
 ## Why PNG, not SVG? Why `-f gfm`?
 
-- **PNG for Mermaid renders.** Pandoc can't reliably embed SVG into a docx
-  unless `rsvg-convert` (or cairosvg/Inkscape) is also installed — without
-  it, pandoc falls back to an embed Word typically shows as broken. PNG
-  embeds cleanly with no extra dependency.
+- **PNG is the default for Mermaid renders.** Pandoc can't reliably embed
+  SVG into a docx unless `rsvg-convert` (or cairosvg/Inkscape) is also
+  installed — without it, pandoc falls back to an embed Word typically
+  shows as broken. PNG embeds cleanly with no extra dependency. Pass
+  `-f/--format svg` if you have one of those tools installed and want
+  vector output instead.
 - **`pandoc -f gfm`.** Pandoc's default markdown dialect has extensions
   enabled that GitHub-flavored markdown doesn't, which can subtly change
   how tables, task lists, and autolinks render. `-f gfm` matches GitHub's
