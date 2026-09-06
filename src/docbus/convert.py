@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 MERMAID_FENCE_RE = re.compile(r"```mermaid[ \t]*\n(.*?)```", re.DOTALL)
@@ -48,12 +49,47 @@ NEUTRAL_THEME_NOTE_VARIABLES = {
 }
 
 
+# pandoc's default docx template only swaps `code` spans to a monospace font
+# (no background), so inline code is invisible inside anything but plain body
+# text (e.g. it blends into and inherits bold from headings) -- add a light
+# shading box and force non-bold, GFM-style.
+INLINE_CODE_SHADING_FILL = "EDEDED"
+VERBATIM_STYLE_RE = re.compile(
+    r'(<w:style\b[^>]*w:styleId="VerbatimChar"[^>]*>.*?<w:rPr>)(.*?)(</w:rPr>\s*</w:style>)',
+    re.DOTALL,
+)
+
+
 class ConversionError(RuntimeError):
     """Raised for expected failures (bad diagram, pandoc failure, etc.).
 
     Caught at the CLI boundary and reported as a one-line message instead
     of a stack trace.
     """
+
+
+def _shade_inline_code(docx_path: Path) -> None:
+    """Patch pandoc's VerbatimChar style in-place to add a background shade."""
+    with zipfile.ZipFile(docx_path) as zin:
+        infos = zin.infolist()
+        styles_xml = zin.read("word/styles.xml").decode("utf-8")
+
+    extra_rpr = (
+        f'<w:shd w:val="clear" w:color="auto" w:fill="{INLINE_CODE_SHADING_FILL}" />'
+        '<w:b w:val="0" /><w:bCs w:val="0" />'
+    )
+    patched, n = VERBATIM_STYLE_RE.subn(
+        lambda m: m.group(1) + m.group(2) + extra_rpr + m.group(3), styles_xml
+    )
+    if n == 0:
+        return
+
+    tmp_path = docx_path.with_suffix(".tmp.docx")
+    with zipfile.ZipFile(docx_path) as zin, zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in infos:
+            data = patched.encode("utf-8") if info.filename == "word/styles.xml" else zin.read(info.filename)
+            zout.writestr(info, data)
+    tmp_path.replace(docx_path)
 
 
 def require_tool(name: str, hint: str) -> None:
@@ -162,4 +198,5 @@ def convert(
     finally:
         processed_path.unlink(missing_ok=True)
 
+    _shade_inline_code(output_path)
     print(f"Wrote {output_path}")
