@@ -59,7 +59,10 @@ if ($LASTEXITCODE -ne 0) {
 
 # --- Ensure PATH is updated for new shells ---
 try {
-    & uv tool update-shell 2>&1 | Out-Null
+    $updateShellOutput = & uv tool update-shell 2>&1
+    if ($LASTEXITCODE -ne 0 -and $updateShellOutput -notmatch 'already up-to-date') {
+        Write-Warning2 "Could not update user PATH automatically. Run 'uv tool update-shell' manually."
+    }
 } catch {
     Write-Warning2 "Could not update user PATH automatically. Run 'uv tool update-shell' manually."
 }

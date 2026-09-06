@@ -79,7 +79,17 @@ main() {
     fi
 
     # --- Ensure PATH is updated for new shells ---
-    uv tool update-shell >/dev/null 2>&1 || warn "Could not update shell PATH automatically. Run 'uv tool update-shell' manually."
+    update_shell_log=$(mktemp)
+    if ! uv tool update-shell >"$update_shell_log" 2>&1; then
+        # uv reports this exact case when the shell rc files already export
+        # the tool bin dir -- only the *current* shell hasn't reloaded it.
+        # Re-running update-shell can't fix that, so don't suggest it; the
+        # Verify step below already gives the real fix.
+        if ! grep -q 'already up-to-date' "$update_shell_log"; then
+            warn "Could not update shell PATH automatically. Run 'uv tool update-shell' manually."
+        fi
+    fi
+    rm -f "$update_shell_log"
 
     # --- Verify ---
     if need_cmd docbus; then
