@@ -54,8 +54,10 @@ def _epilog() -> str:
     heading = f"{_BOLD}{_CYAN}examples:{_RESET}" if _use_color() else "examples:"
     return (
         f"{heading}\n"
-        "  docbus convert report.md\n"
-        "  docbus convert report.md -o report_final.docx\n"
+        "  docbus convert report.md              # writes report.docx\n"
+        "  docbus convert report.md -o out.docx  # -o/--output: custom output path\n"
+        "\n"
+        "See 'docbus convert --help' for the full list of convert options.\n"
     )
 
 
@@ -77,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     convert_parser.add_argument("input", type=Path, help="Path to the source .md file")
     convert_parser.add_argument(
         "-o", "--output", type=Path, default=None,
-        help="Output .docx path (default: same name as input)",
+        help="Output .docx path (default: <input>.docx). Order vs. input doesn't matter.",
     )
 
     return parser
