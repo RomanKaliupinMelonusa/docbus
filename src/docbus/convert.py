@@ -53,11 +53,18 @@ NEUTRAL_THEME_NOTE_VARIABLES = {
 # (no background), so inline code is invisible inside anything but plain body
 # text (e.g. it blends into and inherits bold from headings) -- add a light
 # shading box and force non-bold, GFM-style.
+#
+# This is applied both to the shared VerbatimChar *style* (so Word/LibreOffice/
+# Google Docs, which resolve style inheritance, render it right) and directly
+# on every run referencing it (so importers like Confluence's, which read
+# direct run formatting but don't reliably resolve character-style chains,
+# don't silently fall back to bold).
 INLINE_CODE_SHADING_FILL = "EDEDED"
 VERBATIM_STYLE_RE = re.compile(
     r'(<w:style\b[^>]*w:styleId="VerbatimChar"[^>]*>.*?<w:rPr>)(.*?)(</w:rPr>\s*</w:style>)',
     re.DOTALL,
 )
+VERBATIM_RUN_RE = re.compile(r'<w:rStyle w:val="VerbatimChar" />')
 
 
 class ConversionError(RuntimeError):
@@ -69,26 +76,45 @@ class ConversionError(RuntimeError):
 
 
 def _shade_inline_code(docx_path: Path) -> None:
-    """Patch pandoc's VerbatimChar style in-place to add a background shade."""
+    """Patch pandoc's VerbatimChar style, and every run using it, in-place."""
     with zipfile.ZipFile(docx_path) as zin:
         infos = zin.infolist()
-        styles_xml = zin.read("word/styles.xml").decode("utf-8")
+        contents = {info.filename: zin.read(info.filename) for info in infos}
 
-    extra_rpr = (
+    styles_xml = contents["word/styles.xml"].decode("utf-8")
+    # Guards against corrupting the docx by re-injecting (and duplicating) our
+    # overrides if this ever runs twice on the same already-patched file.
+    if f'w:fill="{INLINE_CODE_SHADING_FILL}"' in styles_xml:
+        return
+
+    style_extra = (
         f'<w:shd w:val="clear" w:color="auto" w:fill="{INLINE_CODE_SHADING_FILL}" />'
         '<w:b w:val="0" /><w:bCs w:val="0" />'
     )
-    patched, n = VERBATIM_STYLE_RE.subn(
-        lambda m: m.group(1) + m.group(2) + extra_rpr + m.group(3), styles_xml
+    patched_styles, n = VERBATIM_STYLE_RE.subn(
+        lambda m: m.group(1) + m.group(2) + style_extra + m.group(3), styles_xml
     )
     if n == 0:
         return
+    contents["word/styles.xml"] = patched_styles.encode("utf-8")
+
+    # Schema order after w:rStyle: rFonts, b, bCs, ..., sz, ..., shd.
+    run_extra = (
+        '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" />'
+        '<w:b w:val="0" /><w:bCs w:val="0" />'
+        '<w:sz w:val="22" />'
+        f'<w:shd w:val="clear" w:color="auto" w:fill="{INLINE_CODE_SHADING_FILL}" />'
+    )
+    for name, data in contents.items():
+        if name.startswith("word/") and name.endswith(".xml") and b"VerbatimChar" in data:
+            text = data.decode("utf-8")
+            patched, _ = VERBATIM_RUN_RE.subn('<w:rStyle w:val="VerbatimChar" />' + run_extra, text)
+            contents[name] = patched.encode("utf-8")
 
     tmp_path = docx_path.with_suffix(".tmp.docx")
-    with zipfile.ZipFile(docx_path) as zin, zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
+    with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
         for info in infos:
-            data = patched.encode("utf-8") if info.filename == "word/styles.xml" else zin.read(info.filename)
-            zout.writestr(info, data)
+            zout.writestr(info, contents[info.filename])
     tmp_path.replace(docx_path)
 
 
