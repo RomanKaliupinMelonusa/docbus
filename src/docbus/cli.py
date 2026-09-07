@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import __version__
 from .convert import (
+    DEFAULT_MERMAID_BACKGROUND,
     DEFAULT_MERMAID_FORMAT,
     DEFAULT_MERMAID_THEME,
     MERMAID_FORMATS,
@@ -101,6 +102,13 @@ def build_parser() -> argparse.ArgumentParser:
              f"Choices: {', '.join(MERMAID_FORMATS)}. svg needs rsvg-convert "
              "(or cairosvg/Inkscape) on PATH for pandoc to embed it.",
     )
+    convert_parser.add_argument(
+        "-b", "--background", default=DEFAULT_MERMAID_BACKGROUND,
+        metavar="COLOR",
+        help=f"Diagram background color passed to mmdc's -b flag (default: "
+             f"{DEFAULT_MERMAID_BACKGROUND}). Any color mmdc accepts works, e.g. "
+             "transparent, white, or a hex code like '#f0f0f0'.",
+    )
 
     return parser
 
@@ -116,7 +124,7 @@ def main(argv: "list[str] | None" = None) -> None:
             sys.exit(f"Input file not found: {args.input}")
         output_path = args.output or args.input.with_suffix(".docx")
         try:
-            convert(args.input, output_path, theme=args.theme, fmt=args.format)
+            convert(args.input, output_path, theme=args.theme, fmt=args.format, background=args.background)
         except ConversionError as e:
             sys.exit(f"error: {e}")
 

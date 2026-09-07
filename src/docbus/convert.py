@@ -39,6 +39,11 @@ MERMAID_FORMATS = ("png", "svg")
 DEFAULT_MERMAID_FORMAT = "png"
 MERMAID_FORMAT_MIME_TYPES = {"png": "image/png", "svg": "image/svg+xml"}
 
+# white avoids diagrams looking "background-less" when the PNG/SVG is opened
+# directly outside a document (e.g. an image viewer or dark-mode UI); pass
+# any mmdc-accepted color (or "transparent") via -b/--background to override.
+DEFAULT_MERMAID_BACKGROUND = "white"
+
 # neutral is otherwise all-grayscale by design (mmdc/mermaid drops the note's
 # yellow highlight entirely under it) -- restore mermaid's own "default" theme
 # note colors so callouts stay visible, matching mermaid.ai's neutral export.
@@ -225,7 +230,8 @@ def _mmdc_theme_args(theme: str, tmp_dir: Path) -> list[str]:
 
 
 def render_mermaid_to_data_uris(
-    md_text: str, theme: str = DEFAULT_MERMAID_THEME, fmt: str = DEFAULT_MERMAID_FORMAT
+    md_text: str, theme: str = DEFAULT_MERMAID_THEME, fmt: str = DEFAULT_MERMAID_FORMAT,
+    background: str = DEFAULT_MERMAID_BACKGROUND,
 ) -> tuple[str, int]:
     """Replace every ```mermaid fence with a plain markdown image reference
     whose src is a base64 data URI, rendered by mmdc as either PNG (default)
@@ -247,7 +253,7 @@ def render_mermaid_to_data_uris(
 
             mmd_path.write_text(diagram_src, encoding="utf-8")
             result = subprocess.run(
-                ["mmdc", "-i", str(mmd_path), "-o", str(out_path), "-b", "transparent", *theme_args],
+                ["mmdc", "-i", str(mmd_path), "-o", str(out_path), "-b", background, *theme_args],
                 capture_output=True, text=True,
             )
             if result.returncode != 0:
@@ -267,6 +273,7 @@ def render_mermaid_to_data_uris(
 def convert(
     input_path: Path, output_path: Path,
     theme: str = DEFAULT_MERMAID_THEME, fmt: str = DEFAULT_MERMAID_FORMAT,
+    background: str = DEFAULT_MERMAID_BACKGROUND,
 ) -> None:
     require_tool("mmdc", "Install with: npm install -g @mermaid-js/mermaid-cli")
     require_tool("pandoc", "Install from https://pandoc.org/installing.html")
@@ -275,7 +282,7 @@ def convert(
 
     md_text = input_path.read_text(encoding="utf-8")
     print(f"Scanning {input_path.name} for mermaid diagrams...")
-    processed_md, count = render_mermaid_to_data_uris(md_text, theme=theme, fmt=fmt)
+    processed_md, count = render_mermaid_to_data_uris(md_text, theme=theme, fmt=fmt, background=background)
     print(f"Rendered {count} diagram(s).")
 
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
